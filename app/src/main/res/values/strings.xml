@@ -1,3 +1,23 @@
 <resources>
     <string name="app_name">CuteWeather</string>
+
+    <string name="centigrade_symbol">℃</string>
+
+    <!-- 异常信息 -->
+    <string name="err_load_failed">加载失败</string>
+    <string name="err_fetch_weather_failed">获取天气信息失败</string>
+
+    <!-- 预报布局 -->
+    <string name="forecast_title">预报</string>
+
+    <!-- 空气质量 -->
+    <string name="aqi_title">空气质量</string>
+    <string name="aqi_index">AQI 指数</string>
+    <string name="aqi_pm25">PM2.5 指数</string>
+
+    <!-- 生活建议 -->
+    <string name="suggestion_title">生活建议</string>
+    <string name="suggestion_comfort">舒适度：</string>
+    <string name="suggestion_car_wash">洗车指数：</string>
+    <string name="suggestion_sport">运动建议：</string>
 </resources>
