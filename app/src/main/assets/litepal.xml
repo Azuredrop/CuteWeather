@@ -3,8 +3,9 @@
     <version value="1"/>
 
     <list>
+        <mapping class="com.azuredrop.cuteweather.db.Continent"/>
+        <mapping class="com.azuredrop.cuteweather.db.Country"/>
         <mapping class="com.azuredrop.cuteweather.db.Province"/>
         <mapping class="com.azuredrop.cuteweather.db.City"/>
-        <mapping class="com.azuredrop.cuteweather.db.County"/>
     </list>
 </litepal>

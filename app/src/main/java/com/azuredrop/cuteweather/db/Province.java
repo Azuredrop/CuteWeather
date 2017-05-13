@@ -1,47 +1,24 @@
 package com.azuredrop.cuteweather.db;
 
-import org.litepal.crud.DataSupport;
-
 /**
  * Created by AzureDrop on 2017/5/9.
  */
 
 /**
- * 省份类，用于保存省份相关的信息
+ * 省份
  * @author AzureDrop
  */
-public class Province extends DataSupport {
+public class Province extends BaseArea {
     /**
-     * ID
+     * 所属国家Id
      */
-    private int id;
-    /**
-     * 省份名称
-     */
-    private String provinceName;
-    /**
-     * 省份代号
-     */
-    private int provinceCode;
+    private int countryId;
 
-    public int getId() {
-        return id;
-    }
-    public void setId(int id) {
-        this.id = id;
+    public int getCountryId() {
+        return countryId;
     }
 
-    public String getProvinceName() {
-        return provinceName;
-    }
-    public void setProvinceName(String provinceName) {
-        this.provinceName = provinceName;
-    }
-
-    public int getProvinceCode() {
-        return provinceCode;
-    }
-    public void setProvinceCode(int provinceCode) {
-        this.provinceCode = provinceCode;
+    public void setCountryId(int countryId) {
+        this.countryId = countryId;
     }
 }

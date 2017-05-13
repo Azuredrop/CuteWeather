@@ -1,10 +1,16 @@
 package com.azuredrop.cuteweather;
 
+import android.Manifest;
+import android.annotation.TargetApi;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
 import android.preference.PreferenceManager;
+import android.support.annotation.NonNull;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.content.ContextCompat;
 import android.support.v4.view.GravityCompat;
 import android.support.v4.widget.DrawerLayout;
 import android.support.v4.widget.SwipeRefreshLayout;
@@ -19,27 +25,34 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.azuredrop.cuteweather.db.Continent;
 import com.azuredrop.cuteweather.gson.Forecast;
 import com.azuredrop.cuteweather.gson.Weather;
 import com.azuredrop.cuteweather.service.AutoUpdateService;
 import com.azuredrop.cuteweather.util.HttpUtil;
 import com.azuredrop.cuteweather.util.Utility;
+import com.baidu.location.BDLocation;
+import com.baidu.location.BDLocationListener;
+import com.baidu.location.LocationClient;
+import com.baidu.location.LocationClientOption;
 import com.bumptech.glide.Glide;
+
+import org.litepal.crud.DataSupport;
 
 import java.io.IOException;
 import java.io.PipedReader;
+import java.util.ArrayList;
+import java.util.List;
 
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.Response;
 
 public class WeatherActivity extends AppCompatActivity {
+    private final int PERMISSION_REQUEST_LOCATION = 0;
+
     /**
-     * Intent中WeatherID
-     */
-    public static final String WEATHER_ID = "weather_id";
-    /**
-     * 存放进SharedPreferences里返回的城市数据
+     * 存放进SharedPreferences里返回的天气数据
      */
     public static final String SHARED_PREF_WEATHER = "weather";
     /**
@@ -53,9 +66,13 @@ public class WeatherActivity extends AppCompatActivity {
     public static final String HEFENG_WEATHER_APIKEY = "f28feb687e594050bc145b72e92e298a";
 
     /**
-     * 当前城市的WeatherId
+     * 当前城市编号
      */
-    private String mWeatherId;
+    private String mWeatherCode;
+    /**
+     * 定位服务器
+     */
+    private LocationClient mLocationClient;
 
     // 控件
     private ImageView backgoundImg;
@@ -74,6 +91,24 @@ public class WeatherActivity extends AppCompatActivity {
     private TextView carWashText;
     private TextView sportText;
 
+    /**
+     * 定义自己的定位监听
+     */
+    public class MyLocationListener implements BDLocationListener {
+        @Override
+        public void onReceiveLocation(BDLocation bdLocation) {
+            mWeatherCode = Utility.getWeatherCode(bdLocation.getCountry(), bdLocation.getProvince(), bdLocation.getCity());
+
+            requestWeather(mWeatherCode);
+            mLocationClient.stop();
+        }
+
+        @Override
+        public void onConnectHotSpotMessage(String s, int i) {
+
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -84,6 +119,10 @@ public class WeatherActivity extends AppCompatActivity {
                     | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
             getWindow().setStatusBarColor(Color.TRANSPARENT);
         }
+
+        // 创建LocationClient实例
+        mLocationClient = new LocationClient(getApplicationContext());
+        mLocationClient.registerLocationListener(new MyLocationListener());
 
         setContentView(R.layout.activity_weather);
 
@@ -96,7 +135,7 @@ public class WeatherActivity extends AppCompatActivity {
         swipeRefresh.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
             @Override
             public void onRefresh() {
-                requestWeather(mWeatherId);
+                requestWeather(mWeatherCode);
             }
         });
         weatherLayout = (ScrollView) findViewById(R.id.weather_layout);
@@ -118,6 +157,16 @@ public class WeatherActivity extends AppCompatActivity {
         carWashText = (TextView) findViewById(R.id.car_wash_text);
         sportText = (TextView) findViewById(R.id.sport_text);
 
+        // 请求城市数据
+        Continent continent = DataSupport.findLast(Continent.class);
+        if (continent == null) {
+            // 无缓存时去服务器查询城市数据
+            requestCity();
+        }
+
+        // 权限
+        getPermissions();
+
         // 填充数据
         SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(this);
         // 填充背景图片
@@ -125,30 +174,127 @@ public class WeatherActivity extends AppCompatActivity {
         if (backgroundPic != null) {
             Glide.with(this).load(backgroundPic).into(backgoundImg);
         } else {
-            loadBackgoundPic();
+            loadBackgroundPic();
         }
+
         // 填充天气数据
         String weatherString = preferences.getString(SHARED_PREF_WEATHER, null);
         if (weatherString != null) {
             // 有缓存时直接解析天气数据
             Weather weather = Utility.handleWeatherResponse(weatherString);
-            mWeatherId = weather.basic.weatherId;
-            showWeatherInfo(weather);
-        } else {
-            // 无缓存时去服务器查询天气
-            mWeatherId = getIntent().getStringExtra(WEATHER_ID);
-            weatherLayout.setVisibility(View.INVISIBLE);
-            requestWeather(mWeatherId);
+            if (weather != null && weather.status == "ok") {
+                mWeatherCode = weather.basic.weatherCode;
+                showWeatherInfo(weather);
+            }
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        mLocationClient.stop();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        switch (requestCode) {
+            case PERMISSION_REQUEST_LOCATION:
+                if (grantResults.length > 0) {
+                    for (int result : grantResults) {
+                        if (result != PackageManager.PERMISSION_GRANTED) {
+                            Toast.makeText(this, R.string.err_permission_loca, Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                    }
+                } else {
+                    Toast.makeText(this, R.string.err_unknown, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    /**
+     * 获取权限
+     */
+    private void getPermissions() {
+        ArrayList<String> permissions = new ArrayList<String>();
+
+        // 定位精确位置
+        if (ContextCompat.checkSelfPermission(WeatherActivity.this,
+                Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+        if (ContextCompat.checkSelfPermission(WeatherActivity.this,
+                Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+            permissions.add(Manifest.permission.READ_PHONE_STATE);
+        }
+        if (ContextCompat.checkSelfPermission(WeatherActivity.this,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+        }
+
+        if (permissions.size() > 0) {
+            ActivityCompat.requestPermissions(WeatherActivity.this,
+                    permissions.toArray(new String[permissions.size()]), PERMISSION_REQUEST_LOCATION);
+        } else {
+            requestLocatin();
+        }
+    }
+
+    /**
+     * 请求定位
+     */
+    private void requestLocatin() {
+        initLocation();
+        mLocationClient.start();
+    }
+
+    /**
+     * 初始化定位设置
+     */
+    private void initLocation() {
+        LocationClientOption option = new LocationClientOption();
+        option.setIsNeedAddress(true);
+        mLocationClient.setLocOption(option);
+    }
+
+    /**
+     * 根据天气ID请求城市天气信息
+     */
+    public void requestCity() {
+        String cityUrl = "https://cdn.heweather.com/china-city-list.json";
+
+        HttpUtil.sendOkHttpRequest(cityUrl, new Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        Toast.makeText(WeatherActivity.this, R.string.err_fetch_city_failed, Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+                final String responseText = response.body().string();
+
+                Utility.handleCityResponse(responseText);
+            }
+        });
     }
 
     /**
      * 根据天气ID请求城市天气信息
      *
-     * @param weatherId 天气ID
+     * @param weatherCode 天气编码
      */
-    public void requestWeather(final String weatherId) {
-        String weatherUrl = "http://guolin.tech/api/weather?cityid=" + weatherId + "&key=" + HEFENG_WEATHER_APIKEY;
+    public void requestWeather(final String weatherCode) {
+        String weatherUrl = "https://free-api.heweather.com/v5/weather?city=" + weatherCode + "&key=" + HEFENG_WEATHER_APIKEY;
 
         HttpUtil.sendOkHttpRequest(weatherUrl, new Callback() {
             @Override
@@ -165,17 +311,17 @@ public class WeatherActivity extends AppCompatActivity {
             @Override
             public void onResponse(Call call, Response response) throws IOException {
                 final String responseText = response.body().string();
+                SharedPreferences.Editor editor = PreferenceManager
+                        .getDefaultSharedPreferences(WeatherActivity.this).edit();
+                editor.putString(SHARED_PREF_WEATHER, responseText);
+                editor.apply();
+
                 final Weather weather = Utility.handleWeatherResponse(responseText);
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
                         if (weather != null && "ok".equals(weather.status)) {
-                            mWeatherId = weather.basic.weatherId;
-
-                            SharedPreferences.Editor editor = PreferenceManager
-                                    .getDefaultSharedPreferences(WeatherActivity.this).edit();
-                            editor.putString(SHARED_PREF_WEATHER, responseText);
-                            editor.apply();
+                            mWeatherCode = weather.basic.weatherCode;
 
                             showWeatherInfo(weather);
                         } else {
@@ -188,15 +334,18 @@ public class WeatherActivity extends AppCompatActivity {
         });
 
         // 请求天气信息的时候，刷新背景图片
-        loadBackgoundPic();
+        loadBackgroundPic();
     }
 
     /**
      * 处理并展示Weather实体类中的数据
      *
-     * @param weather eather实体类
+     * @param weather weather实体类
      */
     private void showWeatherInfo(Weather weather) {
+        if (weather == null)
+            return;
+
         // 城市名
         titleCity.setText(weather.basic.cityName);
         // 更新时间
@@ -250,7 +399,7 @@ public class WeatherActivity extends AppCompatActivity {
     /**
      * 加载背景图片
      */
-    private void loadBackgoundPic(){
+    private void loadBackgroundPic() {
         String requestPic = "http://guolin.tech/api/bing_pic";
         HttpUtil.sendOkHttpRequest(requestPic, new Callback() {
             @Override

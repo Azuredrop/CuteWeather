@@ -55,8 +55,8 @@ public class AutoUpdateService extends Service {
         if (weatherString != null) {
             // 有缓存时直接解析天气数据
             Weather weather = Utility.handleWeatherResponse(weatherString);
-            String weatherId = weather.basic.weatherId;
-            String weatherUrl = "http://guolin.tech/api/weather?cityid=" + weatherId + "&key=" + WeatherActivity.HEFENG_WEATHER_APIKEY;
+            String weatherCode = weather.basic.weatherCode;
+            String weatherUrl = "https://free-api.heweather.com/v5/weather?city=" + weatherCode + "&key=" + WeatherActivity.HEFENG_WEATHER_APIKEY;
 
             HttpUtil.sendOkHttpRequest(weatherUrl, new Callback() {
                 @Override

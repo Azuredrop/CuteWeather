@@ -15,7 +15,7 @@ public class Basic {
     public String cityName;
 
     @SerializedName("id")
-    public String weatherId;
+    public String weatherCode;
 
     public Update update;
 

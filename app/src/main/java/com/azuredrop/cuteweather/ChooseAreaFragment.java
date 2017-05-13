@@ -1,7 +1,6 @@
 package com.azuredrop.cuteweather;
 
 import android.app.ProgressDialog;
-import android.content.Intent;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
 import android.support.v4.app.Fragment;
@@ -13,24 +12,17 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ListView;
 import android.widget.TextView;
-import android.widget.Toast;
 
+import com.azuredrop.cuteweather.db.BaseArea;
 import com.azuredrop.cuteweather.db.City;
-import com.azuredrop.cuteweather.db.County;
+import com.azuredrop.cuteweather.db.Continent;
+import com.azuredrop.cuteweather.db.Country;
 import com.azuredrop.cuteweather.db.Province;
-import com.azuredrop.cuteweather.util.HttpUtil;
-import com.azuredrop.cuteweather.util.Utility;
-import com.bumptech.glide.util.Util;
 
 import org.litepal.crud.DataSupport;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-
-import okhttp3.Call;
-import okhttp3.Callback;
-import okhttp3.Response;
 
 /**
  * Created by AzureDrop on 2017/5/9.
@@ -38,9 +30,12 @@ import okhttp3.Response;
 
 public class ChooseAreaFragment extends Fragment {
     // 标识当前级别
-    public static final int LEVEL_PROVINCE = 0;
-    public static final int LEVEL_CITY = 1;
-    public static final int LEVEL_COUNTY = 2;
+    private enum AreaLevel {
+        LEVEL_CONTINENT,
+        LEVEL_COUNTRY,
+        LEVEL_PROVINCE,
+        LEVEL_CITY
+    }
 
     // 控件
     private ProgressDialog progressDialog;
@@ -53,32 +48,18 @@ public class ChooseAreaFragment extends Fragment {
      */
     private ArrayAdapter<String> adapter;
 
+    /**
+     * ListView绑定的数据
+     */
     private List<String> dataList = new ArrayList<>();
-    /**
-     * 省列表
-     */
-    private List<Province> provinceList;
-    /**
-     * 市列表
-     */
-    private List<City> cityList;
-    /**
-     * 县列表
-     */
-    private List<County> countyList;
-
-    /**
-     * 选中的省
-     */
-    private Province selectedProvince;
-    /**
-     * 选中的市
-     */
-    private City selectedCity;
     /**
      * 当前选中的级别
      */
-    private int currentLevel;
+    private AreaLevel currentLevel = AreaLevel.LEVEL_CONTINENT;
+    /**
+     * 区域堆栈
+     */
+    private List<BaseArea> areaList = new ArrayList<>();
 
     @Nullable
     @Override
@@ -103,26 +84,67 @@ public class ChooseAreaFragment extends Fragment {
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-                // 根据当前级别，重新填充列表
-                if (currentLevel == LEVEL_PROVINCE) {
-                    selectedProvince = provinceList.get(position);
-                    queryCities();
-                } else if (currentLevel == LEVEL_CITY) {
-                    selectedCity = cityList.get(position);
-                    queryCounties();
-                } else if (currentLevel == LEVEL_COUNTY) {
-                    String weatherId = countyList.get(position).getWeatherId();
-                    if(getActivity() instanceof MainActivity) {
-                        Intent intent = new Intent(getActivity(), WeatherActivity.class);
-                        intent.putExtra(WeatherActivity.WEATHER_ID, weatherId);
-                        startActivity(intent);
-                        getActivity().finish();
-                    }else if(getActivity() instanceof  WeatherActivity){
-                        WeatherActivity activity = (WeatherActivity)getActivity();
+                switch (currentLevel) {
+                    case LEVEL_CONTINENT:
+                        // 获取洲Id
+                        List<Continent> continentList = DataSupport
+                                .where("nameZh = ?", dataList.get(position))
+                                .find(Continent.class);
+                        if (continentList.size() == 0)
+                            return;
+                        else
+                            areaList.add(continentList.get(0));
+
+                        // 查询洲下的国家
+                        queryCountries();
+                        break;
+                    case LEVEL_COUNTRY:
+                        // 获取洲Id
+                        String continentId = String.valueOf(areaList.get(areaList.size() - 1).getId());
+                        // 获取点击的国家Id
+                        List<Country> countryList = DataSupport
+                                .where("continentId = ? and nameZh = ? ", continentId, dataList.get(position))
+                                .find(Country.class);
+                        if (countryList.size() == 0)
+                            return;
+                        else
+                            areaList.add(countryList.get(0));
+
+                        // 查询国家下的省
+                        queryProvinces();
+                        break;
+                    case LEVEL_PROVINCE:
+                        // 获取国家Id
+                        String countryId = String.valueOf(areaList.get(areaList.size() - 1).getId());
+                        // 获取点击的省Id
+                        List<Province> provinceList = DataSupport
+                                .where("countryId = ? and nameZh = ? ", countryId, dataList.get(position))
+                                .find(Province.class);
+                        if (provinceList.size() == 0)
+                            return;
+                        else
+                            areaList.add(provinceList.get(0));
+
+                        // 查下省下的市
+                        queryCities();
+                        break;
+                    case LEVEL_CITY:
+                        // 获取省Id
+                        String provinceId = String.valueOf(areaList.get(areaList.size() - 1).getId());
+                        // 获取点击的省Id
+                        List<City> cityList = DataSupport
+                                .where("provinceId = ? and nameZh = ? ", provinceId, dataList.get(position))
+                                .find(City.class);
+                        if (cityList.size() == 0)
+                            return;
+
+                        WeatherActivity activity = (WeatherActivity) getActivity();
                         activity.drawerLayout.closeDrawers();
                         activity.swipeRefresh.setRefreshing(true);
-                        activity.requestWeather(weatherId);
-                    }
+                        activity.requestWeather(cityList.get(0).getWeatherCode());
+                        break;
+                    default:
+                        break;
                 }
             }
         });
@@ -130,137 +152,113 @@ public class ChooseAreaFragment extends Fragment {
             @Override
             public void onClick(View v) {
                 // 根据当前级别，重新填充列表
-                if (currentLevel == LEVEL_COUNTY) {
-                    queryCities();
-                } else if (currentLevel == LEVEL_CITY) {
+                if (currentLevel == AreaLevel.LEVEL_CITY) {
+                    areaList.remove(areaList.size() - 1);
+
                     queryProvinces();
+                } else if (currentLevel == AreaLevel.LEVEL_PROVINCE) {
+                    areaList.remove(areaList.size() - 1);
+
+                    queryCountries();
+                } else if (currentLevel == AreaLevel.LEVEL_COUNTRY) {
+                    areaList.clear();
+
+                    queryContinents();
                 }
             }
         });
-        // 初始填充省级别列表
-        queryProvinces();
+
+        // 初始填充洲级数据
+        queryContinents();
     }
 
     /**
-     * 查询所有省级数据，优先冲数据库获取，如果没有再去服务器上查询
+     * 查询所有洲级数据
+     */
+    private void queryContinents() {
+        titleText.setText("地球");
+        backButton.setVisibility(View.GONE);
+
+        dataList.clear();
+        dataList.add("亚洲");
+        adapter.notifyDataSetChanged();
+        listView.setSelection(0);
+        currentLevel = AreaLevel.LEVEL_CONTINENT;
+    }
+
+    /**
+     * 查询所有国家级数据
+     */
+    private void queryCountries() {
+        BaseArea baseArea = areaList.get(areaList.size() - 1);
+        if (!(baseArea instanceof Continent)) {
+            return;
+        }
+
+        titleText.setText(baseArea.getNameZh());
+        backButton.setVisibility(View.VISIBLE);
+
+        // 获取市级数据
+        List<Country> countryList = DataSupport.where("continentId = ?", String.valueOf(baseArea.getId())).find(Country.class);
+        if (countryList.size() > 0) {
+            dataList.clear();
+            for (Country country : countryList) {
+                dataList.add(country.getNameZh());
+            }
+            adapter.notifyDataSetChanged();
+            listView.setSelection(0);
+            currentLevel = AreaLevel.LEVEL_COUNTRY;
+        }
+    }
+
+    /**
+     * 查询所有省级数据
      */
     private void queryProvinces() {
-        titleText.setText("中国");
-        backButton.setVisibility(View.GONE);
+        BaseArea baseArea = areaList.get(areaList.size() - 1);
+        if (!(baseArea instanceof Country)) {
+            return;
+        }
+
+        titleText.setText(baseArea.getNameZh());
+        backButton.setVisibility(View.VISIBLE);
+
         // 获取省级数据
-        provinceList = DataSupport.findAll(Province.class);
+        List<Province> provinceList = DataSupport.where("countryId = ?", String.valueOf(baseArea.getId())).find(Province.class);
         if (provinceList.size() > 0) {
             dataList.clear();
             for (Province province : provinceList) {
-                dataList.add(province.getProvinceName());
+                dataList.add(province.getNameZh());
             }
             adapter.notifyDataSetChanged();
             listView.setSelection(0);
-            currentLevel = LEVEL_PROVINCE;
-        } else {
-            String address = "http://guolin.tech/api/china";
-            queryFromServer(address, "province");
+            currentLevel = AreaLevel.LEVEL_PROVINCE;
         }
     }
 
     /**
-     * 查询所有市级数据，优先冲数据库获取，如果没有再去服务器上查询
+     * 查询所有市级数据
      */
     private void queryCities() {
-        titleText.setText(selectedProvince.getProvinceName());
+        BaseArea baseArea = areaList.get(areaList.size() - 1);
+        if (!(baseArea instanceof Province)) {
+            return;
+        }
+
+        titleText.setText(baseArea.getNameZh());
         backButton.setVisibility(View.VISIBLE);
+
         // 获取市级数据
-        cityList = DataSupport.where("provinceid = ?", String.valueOf(selectedProvince.getId())).find(City.class);
+        List<City> cityList = DataSupport.where("provinceId = ?", String.valueOf(baseArea.getId())).find(City.class);
         if (cityList.size() > 0) {
             dataList.clear();
             for (City city : cityList) {
-                dataList.add(city.getCityName());
+                dataList.add(city.getNameZh());
             }
             adapter.notifyDataSetChanged();
             listView.setSelection(0);
-            currentLevel = LEVEL_CITY;
-        } else {
-            int provinceCode = selectedProvince.getProvinceCode();
-            String address = "http://guolin.tech/api/china/" + provinceCode;
-            queryFromServer(address, "city");
+            currentLevel = AreaLevel.LEVEL_CITY;
         }
-    }
-
-    /**
-     * 查询所有县级数据，优先冲数据库获取，如果没有再去服务器上查询
-     */
-    private void queryCounties() {
-        titleText.setText(selectedCity.getCityName());
-        backButton.setVisibility(View.VISIBLE);
-        // 获取市级数据
-        countyList = DataSupport.where("cityid = ?", String.valueOf(selectedCity.getId())).find(County.class);
-        if (countyList.size() > 0) {
-            dataList.clear();
-            for (County county : countyList) {
-                dataList.add(county.getCountyName());
-            }
-            adapter.notifyDataSetChanged();
-            listView.setSelection(0);
-            currentLevel = LEVEL_COUNTY;
-        } else {
-            int provinceCode = selectedProvince.getProvinceCode();
-            int cityCode = selectedCity.getCityCode();
-            String address = "http://guolin.tech/api/china/" + provinceCode + "/" + cityCode;
-            queryFromServer(address, "county");
-        }
-    }
-
-    /**
-     * 根据传入的地址和类型从服务器上查询省市县数据
-     * @param address 地址
-     * @param type 类型
-     */
-    private void queryFromServer(String address, final String type){
-        showProgressDialog();
-
-        HttpUtil.sendOkHttpRequest(address, new Callback() {
-            @Override
-            public void onFailure(Call call, IOException e) {
-                getActivity().runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        closeProgressDialog();
-                        Toast.makeText(getContext(), R.string.err_load_failed, Toast.LENGTH_SHORT).show();
-                    }
-                });
-            }
-
-            @Override
-            public void onResponse(Call call, Response response) throws IOException {
-                String responseText = response.body().string();
-
-                boolean result = false;
-                if ("province".equals(type)) {
-                    result = Utility.handleProvinceResponse(responseText);
-                } else if ("city".equals(type)) {
-                    result = Utility.handleCityResponse(responseText, selectedProvince.getId());
-                } else if ("county".equals(type)) {
-                    result = Utility.handleCountyResponse(responseText, selectedCity.getId());
-                }
-
-                // 如果加载成功，切换到UI主线程更新UI
-                if(result){
-                    getActivity().runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            closeProgressDialog();
-                            if("province".equals(type)){
-                                queryProvinces();
-                            }else if("city".equals(type)){
-                                queryCities();
-                            }else if("county".equals(type)){
-                                queryCounties();
-                            }
-                        }
-                    });
-                }
-            }
-        });
     }
 
     /**

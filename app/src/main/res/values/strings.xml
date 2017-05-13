@@ -4,7 +4,10 @@
     <string name="centigrade_symbol">℃</string>
 
     <!-- 异常信息 -->
+    <string name="err_unknown">发生未知错误</string>
+    <string name="err_permission_loca">请同意定位权限，以获取当前位置天气</string>
     <string name="err_load_failed">加载失败</string>
+    <string name="err_fetch_city_failed">获取城市信息失败</string>
     <string name="err_fetch_weather_failed">获取天气信息失败</string>
 
     <!-- 预报布局 -->
